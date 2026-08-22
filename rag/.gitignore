@@ -1,9 +1,6 @@
-﻿# Python cache
+.venv/
 __pycache__/
-*.pyc
-.env
 .pytest_cache/
-.pytest-tmp/
-.dist/
-.tmp/
-.vscode/
+.coverage
+data/index/
+.env

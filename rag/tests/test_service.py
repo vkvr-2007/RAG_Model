@@ -53,6 +53,12 @@ def test_alabama_regression_rejected_without_entity_match():
     assert not result.grounded and not result.sources
 
 
+def test_generic_name_question_is_rejected():
+    retriever = TopChunkRetriever("आपका नाम राघव है।")
+    result = asyncio.run(RAGService(retriever, Generator(None,None,None,1), 1, .35).query("आपका नाम क्या है?"))
+    assert not result.grounded and not result.sources
+
+
 def test_matching_entity_chunk_is_grounded():
     retriever = TopChunkRetriever("बीजिंग चीन गणराज्य की राजधानी है।")
     result = asyncio.run(RAGService(retriever, Generator(None,None,None,1), 1, .35).query("चीन गणराज्य की राजधानी क्या है?"))

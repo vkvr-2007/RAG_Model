@@ -12,7 +12,15 @@ _STOPWORDS = {
     "क्या", "कौन", "किस", "कौनसा", "कौनसी", "जिस", "जिसका", "जिसकी", "यह", "वह", "और", "या", "है",
     "के", "की", "में", "पर", "से", "का", "कि", "को", "ने", "हो", "कर", "है", "what", "when", "where",
     "which", "who", "why", "how", "the", "a", "an", "of", "is", "are", "to", "in", "on", "for",
-    "at", "with", "from", "by", "it", "this", "that"
+    "at", "with", "from", "by", "it", "this", "that", "नाम", "name", "आपका", "आप", "तुम", "तुम्हारा",
+    "मैं", "मेरा", "मेरी", "हम", "हमारा", "हमारी"
+}
+
+
+_GENERIC_QUERY_TERMS = {
+    "राजधानी", "capital", "मुख्यालय", "main", "city", "primary", "क्या", "कौन", "किस",
+    "कौनसा", "कौनसी", "गणराज्य", "देश", "राज्य", "नगर", "शहर", "प्रांत", "स्थान",
+    "country", "state", "city", "capital", "republic", "नाम", "name"
 }
 
 
@@ -32,38 +40,41 @@ def _extract_terms(value: str) -> list[str]:
 
 def _extract_subject_terms(query: str) -> list[str]:
     terms = _extract_terms(query)
-    generic_terms = {
-        "राजधानी", "capital", "मुख्यालय", "main", "city", "primary", "क्या", "कौन", "किस",
-        "कौनसा", "कौनसी", "गणराज्य", "देश", "राज्य", "नगर", "शहर", "प्रांत", "स्थान",
-        "country", "state", "city", "capital", "republic"
-    }
-    return [term for term in terms if term not in generic_terms]
+    return [term for term in terms if term not in _GENERIC_QUERY_TERMS]
 
 
 def _chunk_matches_query(query: str, chunk) -> bool:
     subject_terms = _extract_subject_terms(query)
-    evidence = _normalize_text(chunk.metadata["text"])
     if not subject_terms:
-        return any(token in evidence for token in ["राजधानी", "capital", "मुख्यालय", "main city", "primary city"])
+        return False
+    evidence = _normalize_text(chunk.metadata["text"])
     return any(term in evidence for term in subject_terms)
 
 
 def _has_query_evidence(query: str, chunks: list) -> bool:
     if not chunks:
         return False
-    return _chunk_matches_query(query, chunks[0])
+    subject_terms = _extract_subject_terms(query)
+    if subject_terms:
+        return any(_chunk_matches_query(query, chunk) for chunk in chunks)
+    if _is_capital_query(query):
+        return any(any(token in _normalize_text(chunk.metadata["text"]) for token in ["राजधानी", "capital", "मुख्यालय", "main city", "primary city"]) for chunk in chunks)
+    return False
 
 
 def _has_capital_evidence(query: str, chunks: list) -> bool:
     if not chunks:
         return False
-    text = _normalize_text(chunks[0].metadata["text"])
-    if not any(token in text for token in ["राजधानी", "capital", "मुख्यालय", "main city", "primary city"]):
-        return False
     subject_terms = _extract_subject_terms(query)
-    if not subject_terms:
-        return True
-    return any(term in text for term in subject_terms)
+    for chunk in chunks:
+        text = _normalize_text(chunk.metadata["text"])
+        if not any(token in text for token in ["राजधानी", "capital", "मुख्यालय", "main city", "primary city"]):
+            continue
+        if not subject_terms:
+            return True
+        if any(term in text for term in subject_terms):
+            return True
+    return False
 
 
 class RAGService:
@@ -98,7 +109,8 @@ class RAGService:
         if not generate:
             total = (time.perf_counter()-started)*1000
             logging.getLogger(__name__).info("rag timings preprocess=%.2f embedding=%.2f vector=%.2f bm25=%.2f fusion=%.2f generation=0 total=%.2f", preprocess_ms, timings["embedding_ms"], timings["vector_retrieval_ms"], timings["bm25_ms"], timings["fusion_ms"], total)
-            answer = sources[0].text.strip()
+            matched_chunk = next((chunk for chunk in chunks if _chunk_matches_query(normalized, chunk)), chunks[0])
+            answer = matched_chunk.metadata["text"].strip()
             return QueryResponse(answer=answer, grounded=True, confidence=round(min(1.0, max(0.0, dense_score)), 4), sources=sources, latency_ms=round(total, 2))
 
         if not self.generator or not getattr(self.generator, "base_url", None) or not getattr(self.generator, "api_key", None) or not getattr(self.generator, "model", None):
